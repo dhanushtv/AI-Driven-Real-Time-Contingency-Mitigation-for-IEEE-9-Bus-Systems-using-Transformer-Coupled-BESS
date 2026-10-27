@@ -1,0 +1,2 @@
+# AI-Driven-Real-Time-Contingency-Mitigation-for-IEEE-9-Bus-Systems-using-Transformer-Coupled-BESS
+Developed an AI-driven contingency mitigation framework for IEEE 9-bus systems using a 50 MW BESS at Bus 7 via a 6.6kV/138kV transformer. A Random Forest model maps grid states to power injections in 9.73ms, resolving thermal overloads. Cross-validated across Python, MATLAB, and PowerWorld to ensure academic and engineering rigor.
