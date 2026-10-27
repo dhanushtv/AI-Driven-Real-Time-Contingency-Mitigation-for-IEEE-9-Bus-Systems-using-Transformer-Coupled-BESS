@@ -1,0 +1,105 @@
+%% 
+%% IEEE 9-Bus DC Power Flow, PTDF, & Transformer-Coupled BESS Control
+clear; clc; close all;
+
+% System Constants
+baseMVA = 100;
+nb = 9; % Total Buses
+
+%% 1. Define Bus Data 
+% Columns: [Bus_ID, Type (1=PQ, 2=PV, 3=Slack), P_gen (MW), Q_gen (Mvar), P_load (MW), Q_load (Mvar), Voltage_kV]
+bus_data = [
+    1, 3,   0.0,   0.0,   0.0,   0.0, 138.0; % Slack Bus
+    2, 2, 163.0,   0.0,   0.0,   0.0, 138.0; % Generator Bus 2
+    3, 2,  85.0,   0.0,   0.0,   0.0, 138.0; % Generator Bus 3
+    4, 1,   0.0,   0.0,   0.0,   0.0, 138.0; % Load Bus 4
+    5, 1,   0.0,   0.0,  90.0,  30.0, 138.0; % Load Bus 5
+    6, 1,   0.0,   0.0,   0.0,   0.0, 138.0; % Junction Bus 6
+    7, 1,   0.0,   0.0, 100.0,  35.0, 138.0; % Load Bus 7 (Target BESS Node)
+    8, 1,   0.0,   0.0,   0.0,   0.0, 138.0; % Junction Bus 8
+    9, 1,   0.0,   0.0, 125.0,  50.0, 138.0  % Load Bus 9
+];
+
+P_gen = bus_data(:, 3) / baseMVA;
+P_load = bus_data(:, 5) / baseMVA;
+P_net = P_gen - P_load;
+
+%% 2. Define Branch Data (Transmission Lines & Reactances X)
+% Columns: [From_Bus, To_Bus, Resistance (p.u.), Reactance X (p.u.)]
+branch_data = [
+    1, 4, 0.0000, 0.0576;
+    4, 5, 0.0170, 0.0920;
+    5, 2, 0.0390, 0.1700;
+    3, 6, 0.0000, 0.0586;
+    6, 4, 0.0119, 0.1008;
+    5, 7, 0.0320, 0.0720;
+    7, 8, 0.0085, 0.0720;
+    8, 9, 0.0119, 0.1008;
+    9, 3, 0.0320, 0.1610
+];
+
+nl = size(branch_data, 1);
+from_bus = branch_data(:, 1);
+to_bus = branch_data(:, 2);
+x_reactance = branch_data(:, 4); 
+b_susceptance = 1 ./ x_reactance;
+
+%% 3. Build DC Susceptance Matrix (B Matrix)
+B_bus = zeros(nb, nb);
+for k = 1:nl
+    i = from_bus(k);
+    j = to_bus(k);
+    B_bus(i, i) = B_bus(i, i) + b_susceptance(k);
+    B_bus(j, j) = B_bus(j, j) + b_susceptance(k);
+    B_bus(i, j) = -b_susceptance(k);
+    B_bus(j, i) = -b_susceptance(k);
+end
+
+% Set Slack Bus (Bus 1) and create reduced matrices
+slack_bus = 1;
+non_slack = setdiff(1:nb, slack_bus);
+B_red = B_bus(non_slack, non_slack);
+
+%% 4. Base Case DC Power Flow Solution
+theta_red = B_red \ P_net(non_slack);
+theta = zeros(nb, 1);
+theta(non_slack) = theta_red;
+
+% Calculate base case line flows
+P_flow = zeros(nl, 1);
+for k = 1:nl
+    i = from_bus(k);
+    j = to_bus(k);
+    P_flow(k) = (theta(i) - theta(j)) / x_reactance(k) * baseMVA;
+end
+
+fprintf('--- Base Case Power Flow Calculated Successfully ---\n');
+
+%% 5. Transformer-Coupled BESS Integration Setup (Bus 7)
+bess_bus = 7;
+hv_voltage = bus_data(bess_bus, 7); % 138 kV transmission level at Bus 7
+
+fprintf('\n--- BESS Architectural Integration ---');
+fprintf('\nHigh-Voltage Transmission Node: Bus %d (%.1f kV)', bess_bus, hv_voltage);
+fprintf('\nLocal Collector Interface: 6.6 kV MV Bus');
+fprintf('\nCoupling Mechanism: 6.6 kV / %.1f kV Step-Up Transformer\n', hv_voltage);
+
+% Simulated BESS Active Power Injection at Bus 7 (e.g., 50 MW mitigation)
+P_bess_injection_mw = 50.0; 
+P_net_modified = P_net;
+P_net_modified(bess_bus) = P_net_modified(bess_bus) + (P_bess_injection_mw / baseMVA);
+
+% Recompute angles and flows with BESS active power injection
+theta_red_mod = B_red \ P_net_modified(non_slack);
+theta_mod = zeros(nb, 1);
+theta_mod(non_slack) = theta_red_mod;
+
+P_flow_mod = zeros(nl, 1);
+for k = 1:nl
+    i = from_bus(k);
+    j = to_bus(k);
+    P_flow_mod(k) = (theta_mod(i) - theta_mod(j)) / x_reactance(k) * baseMVA;
+end
+
+fprintf('\n--- BESS Mitigation Simulation Complete ---');
+fprintf('\nActive power injection of %.1f MW applied at Bus 7 via 6.6kV/138kV transformer.\n', P_bess_injection_mw);
